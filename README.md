@@ -52,7 +52,7 @@ python predict.py --csv archive/loan_sanction_test.csv
 GUI (Streamlit):
 
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 В GUI есть три вкладки:
