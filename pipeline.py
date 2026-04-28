@@ -1,7 +1,5 @@
-"""Обучение модели одобрения займа: от EDA до сохранения артефактов."""
 import warnings
 warnings.filterwarnings("ignore")
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -23,16 +21,15 @@ import lightgbm as lgb
 from imblearn.over_sampling import RandomOverSampler
 from imblearn.pipeline import Pipeline as ImbPipeline
 import joblib
-
 import config
 
-# --- 1. Загрузка данных ---
+
 def load_data():
     df = pd.read_csv(config.TRAIN_CSV)
     df = df.drop(columns=[config.ID_COL], errors="ignore")
     return df
 
-# --- 2. EDA ---
+
 def run_eda(df: pd.DataFrame):
     print("=" * 60)
     print("Короткий срез по данным: пропуски, распределения, выбросы")
@@ -58,12 +55,12 @@ def run_eda(df: pd.DataFrame):
             print(f"  {col}: {n_out} выбросов (IQR)")
     return df
 
-# --- 3. Графики EDA ---
+
 def save_eda_plots(df: pd.DataFrame):
     numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != config.TARGET]
     categorical_cols = [c for c in df.select_dtypes(include=["object"]).columns if c != config.TARGET]
 
-    # Гистограммы числовых признаков
+
     n_num = len(numeric_cols)
     if n_num:
         fig, axes = plt.subplots((n_num + 2) // 3, min(3, n_num), figsize=(12, 4 * ((n_num + 2) // 3)))
@@ -79,7 +76,6 @@ def save_eda_plots(df: pd.DataFrame):
         plt.savefig(config.OUTPUT_DIR / "eda_histograms.png", dpi=120, bbox_inches="tight")
         plt.close()
 
-    # Боксплоты числовых признаков
     if n_num:
         fig, axes = plt.subplots((n_num + 2) // 3, min(3, n_num), figsize=(12, 4 * ((n_num + 2) // 3)))
         if n_num == 1:
@@ -94,7 +90,6 @@ def save_eda_plots(df: pd.DataFrame):
         plt.savefig(config.OUTPUT_DIR / "eda_boxplots.png", dpi=120, bbox_inches="tight")
         plt.close()
 
-    # Корреляции: таргет переводим в 0/1
     df_corr = df.copy()
     df_corr[config.TARGET] = (df_corr[config.TARGET] == "Y").astype(int)
     corr_cols = [c for c in df_corr.columns if df_corr[c].dtype in [np.int64, np.float64]]
@@ -107,7 +102,6 @@ def save_eda_plots(df: pd.DataFrame):
         plt.close()
     print("EDA-графики сохранены в output/")
 
-# --- 4. Препроцессинг ---
 def get_feature_columns(df: pd.DataFrame):
     exclude = [config.TARGET]
     numeric = [c for c in df.select_dtypes(include=[np.number]).columns if c not in exclude]
@@ -141,7 +135,7 @@ def preprocess_data(df: pd.DataFrame, fit_preprocessor=True, preprocessor=None):
         X_processed = preprocessor.transform(X)
     return X_processed, y, preprocessor, numeric_cols, categorical_cols
 
-# --- 5. Модели ---
+
 def get_models():
     return {
         "LogisticRegression": LogisticRegression(max_iter=1000, random_state=config.RANDOM_STATE),
@@ -159,7 +153,6 @@ def evaluate_models(X, y, use_smote=False):
     confusion_matrices = {}
     fitted_models = {}
     roc_curves_data = {}
-    # На Windows/Anaconda SMOTE может падать из-за threadpoolctl, поэтому берем RandomOverSampler.
 
     for name, model in models.items():
         if use_smote:
@@ -174,7 +167,7 @@ def evaluate_models(X, y, use_smote=False):
             "F1": scores["test_f1"].mean(),
             "ROC-AUC": scores["test_roc_auc"].mean(),
         }
-        # Для визуализаций отдельно обучаемся на всем train.
+
         pipe_full = ImbPipeline([("resampler", RandomOverSampler(random_state=config.RANDOM_STATE)), ("clf", model)]) if use_smote else model
         pipe_full.fit(X, y)
         y_pred = pipe_full.predict(X)
@@ -184,7 +177,7 @@ def evaluate_models(X, y, use_smote=False):
         roc_curves_data[name] = roc_curve(y, y_proba)
     return results, confusion_matrices, fitted_models, roc_curves_data
 
-# --- 6. Визуализации ---
+
 def save_metrics_barchart(results: dict):
     metrics_df = pd.DataFrame(results).T
     metrics_df.plot(kind="bar", figsize=(10, 6), width=0.8)
@@ -243,7 +236,7 @@ def save_feature_importance(best_model, feature_names: list, filepath: Path):
     plt.savefig(filepath, dpi=120, bbox_inches="tight")
     plt.close()
 
-# --- 7. GridSearch для двух лучших ---
+
 def gridsearch_top2(X, y, results, use_smote=False):
     sorted_models = sorted(results.keys(), key=lambda m: results[m]["ROC-AUC"], reverse=True)
     top2_names = sorted_models[:2]
@@ -277,7 +270,7 @@ def gridsearch_top2(X, y, results, use_smote=False):
         print(f"  {name} лучшие параметры: {gs.best_params_}, ROC-AUC: {gs.best_score_:.4f}")
     return best_estimator
 
-# --- Main ---
+
 def main():
     plt.rcParams["font.family"] = "DejaVu Sans"
     df = load_data()
@@ -306,23 +299,22 @@ def main():
     save_roc_curves(roc_curves_data)
     save_confusion_matrices(confusion_matrices)
 
-    print("\n--- GridSearchCV для двух лучших моделей ---")
+    print("\nGridSearchCV для двух лучших моделей")
     best_estimator = gridsearch_top2(X, y, results, use_smote=use_smote)
 
-    # Финальная модель: либо победитель GridSearch, либо лидер по ROC-AUC из CV.
+
     if best_estimator is not None:
         final_model = best_estimator
     else:
         best_name = max(results.keys(), key=lambda m: results[m]["ROC-AUC"])
         final_model = fitted_models[best_name]
-    # Если это пайплайн (ресэмплер + модель), для важности признаков берем только классификатор.
+
     if hasattr(final_model, "named_steps") and "clf" in final_model.named_steps:
         clf_for_importance = final_model.named_steps["clf"]
     else:
         clf_for_importance = final_model
     save_feature_importance(clf_for_importance, feature_names, config.OUTPUT_DIR / "feature_importance.png")
 
-    # Для инференса сохраняем только классификатор, без ресэмплера.
     if hasattr(final_model, "named_steps") and "clf" in final_model.named_steps:
         classifier_for_save = final_model.named_steps["clf"]
     else:
