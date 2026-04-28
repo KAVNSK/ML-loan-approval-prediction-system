@@ -1,9 +1,9 @@
 """
-Console service: predict loan approval (Y/N) from applicant data.
-Usage:
-  python predict.py                          # interactive prompts
-  python predict.py --csv path/to/rows.csv   # batch from CSV (same columns as train, no Loan_Status)
-  python predict.py --row "Male,Yes,0,Graduate,No,5000,0,120,360,1,Urban"  # single row (no headers)
+CLI для прогноза одобрения займа (Y/N).
+Примеры:
+  python predict.py
+  python predict.py --csv path/to/rows.csv
+  python predict.py --row "Male,Yes,0,Graduate,No,5000,0,120,360,1,Urban"
 """
 import argparse
 import sys
@@ -26,7 +26,7 @@ def load_artifacts():
 
 
 def predict_one(preprocessor, model, row: pd.DataFrame):
-    """row: DataFrame with same feature columns as training (no Loan_ID, no Loan_Status)."""
+    """`row` должен содержать те же признаки, что и в обучении (без Loan_ID и Loan_Status)."""
     X = preprocessor.transform(row)
     proba = model.predict_proba(X)[:, 1] if hasattr(model, "predict_proba") else None
     pred = model.predict(X)[0]

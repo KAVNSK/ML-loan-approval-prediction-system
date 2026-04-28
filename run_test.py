@@ -1,4 +1,4 @@
-"""Quick test: after pipeline.py has been run, load model and predict one row."""
+"""Дымовой тест: загружаем артефакты и проверяем прогноз на одной строке."""
 import sys
 from pathlib import Path
 

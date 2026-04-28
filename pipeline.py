@@ -1,7 +1,4 @@
-"""
-ML-based Loan Approval Prediction: full pipeline.
-EDA, preprocessing, modeling (5 models + GridSearch top 2), visualizations, save artifacts.
-"""
+"""Обучение модели одобрения займа: от EDA до сохранения артефактов."""
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -29,7 +26,7 @@ import joblib
 
 import config
 
-# --- 1. Load data ---
+# --- 1. Загрузка данных ---
 def load_data():
     df = pd.read_csv(config.TRAIN_CSV)
     df = df.drop(columns=[config.ID_COL], errors="ignore")
@@ -38,7 +35,7 @@ def load_data():
 # --- 2. EDA ---
 def run_eda(df: pd.DataFrame):
     print("=" * 60)
-    print("Разведка данных: распределения, пропуски, выбросы")
+    print("Короткий срез по данным: пропуски, распределения, выбросы")
     print("=" * 60)
     print(df.info())
     print("\n--- Пропуски ---")
@@ -61,12 +58,12 @@ def run_eda(df: pd.DataFrame):
             print(f"  {col}: {n_out} выбросов (IQR)")
     return df
 
-# --- 3. EDA visualizations ---
+# --- 3. Графики EDA ---
 def save_eda_plots(df: pd.DataFrame):
     numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c != config.TARGET]
     categorical_cols = [c for c in df.select_dtypes(include=["object"]).columns if c != config.TARGET]
 
-    # Histograms (numeric)
+    # Гистограммы числовых признаков
     n_num = len(numeric_cols)
     if n_num:
         fig, axes = plt.subplots((n_num + 2) // 3, min(3, n_num), figsize=(12, 4 * ((n_num + 2) // 3)))
@@ -82,7 +79,7 @@ def save_eda_plots(df: pd.DataFrame):
         plt.savefig(config.OUTPUT_DIR / "eda_histograms.png", dpi=120, bbox_inches="tight")
         plt.close()
 
-    # Boxplots (numeric)
+    # Боксплоты числовых признаков
     if n_num:
         fig, axes = plt.subplots((n_num + 2) // 3, min(3, n_num), figsize=(12, 4 * ((n_num + 2) // 3)))
         if n_num == 1:
@@ -97,7 +94,7 @@ def save_eda_plots(df: pd.DataFrame):
         plt.savefig(config.OUTPUT_DIR / "eda_boxplots.png", dpi=120, bbox_inches="tight")
         plt.close()
 
-    # Correlation heatmap (encode target for correlation)
+    # Корреляции: таргет переводим в 0/1
     df_corr = df.copy()
     df_corr[config.TARGET] = (df_corr[config.TARGET] == "Y").astype(int)
     corr_cols = [c for c in df_corr.columns if df_corr[c].dtype in [np.int64, np.float64]]
@@ -108,9 +105,9 @@ def save_eda_plots(df: pd.DataFrame):
         plt.tight_layout()
         plt.savefig(config.OUTPUT_DIR / "eda_correlation_heatmap.png", dpi=120, bbox_inches="tight")
         plt.close()
-    print("Графики EDA сохранены в output/")
+    print("EDA-графики сохранены в output/")
 
-# --- 4. Preprocessing pipeline ---
+# --- 4. Препроцессинг ---
 def get_feature_columns(df: pd.DataFrame):
     exclude = [config.TARGET]
     numeric = [c for c in df.select_dtypes(include=[np.number]).columns if c not in exclude]
@@ -144,7 +141,7 @@ def preprocess_data(df: pd.DataFrame, fit_preprocessor=True, preprocessor=None):
         X_processed = preprocessor.transform(X)
     return X_processed, y, preprocessor, numeric_cols, categorical_cols
 
-# --- 5. Modeling ---
+# --- 5. Модели ---
 def get_models():
     return {
         "LogisticRegression": LogisticRegression(max_iter=1000, random_state=config.RANDOM_STATE),
@@ -162,7 +159,7 @@ def evaluate_models(X, y, use_smote=False):
     confusion_matrices = {}
     fitted_models = {}
     roc_curves_data = {}
-    # Use RandomOverSampler instead of SMOTE to avoid threadpoolctl bug (SMOTE KNN triggers get_config().split() on None on Windows/Anaconda)
+    # На Windows/Anaconda SMOTE может падать из-за threadpoolctl, поэтому берем RandomOverSampler.
 
     for name, model in models.items():
         if use_smote:
@@ -177,7 +174,7 @@ def evaluate_models(X, y, use_smote=False):
             "F1": scores["test_f1"].mean(),
             "ROC-AUC": scores["test_roc_auc"].mean(),
         }
-        # Fit on full data for confusion matrix and ROC
+        # Для визуализаций отдельно обучаемся на всем train.
         pipe_full = ImbPipeline([("resampler", RandomOverSampler(random_state=config.RANDOM_STATE)), ("clf", model)]) if use_smote else model
         pipe_full.fit(X, y)
         y_pred = pipe_full.predict(X)
@@ -187,7 +184,7 @@ def evaluate_models(X, y, use_smote=False):
         roc_curves_data[name] = roc_curve(y, y_proba)
     return results, confusion_matrices, fitted_models, roc_curves_data
 
-# --- 6. Visualizations: bar chart, ROC curves ---
+# --- 6. Визуализации ---
 def save_metrics_barchart(results: dict):
     metrics_df = pd.DataFrame(results).T
     metrics_df.plot(kind="bar", figsize=(10, 6), width=0.8)
@@ -246,7 +243,7 @@ def save_feature_importance(best_model, feature_names: list, filepath: Path):
     plt.savefig(filepath, dpi=120, bbox_inches="tight")
     plt.close()
 
-# --- 7. GridSearch for top 2 ---
+# --- 7. GridSearch для двух лучших ---
 def gridsearch_top2(X, y, results, use_smote=False):
     sorted_models = sorted(results.keys(), key=lambda m: results[m]["ROC-AUC"], reverse=True)
     top2_names = sorted_models[:2]
@@ -296,9 +293,9 @@ def main():
     neg, pos = np.bincount(y)
     use_smote = min(neg, pos) < len(y) * 0.4
     if use_smote:
-        print("\nПрименяем передискретизацию для дисбаланса классов.")
+        print("\nКлассы заметно несбалансированы, включаем RandomOverSampler.")
     else:
-        print("\nБаланс классов в норме; передискретизация опциональна.")
+        print("\nБаланс классов приемлемый, работаем без ресэмплинга.")
 
     print("\n--- Результаты кросс-валидации (k=5) ---")
     results, confusion_matrices, fitted_models, roc_curves_data = evaluate_models(X, y, use_smote=use_smote)
@@ -312,20 +309,20 @@ def main():
     print("\n--- GridSearchCV для двух лучших моделей ---")
     best_estimator = gridsearch_top2(X, y, results, use_smote=use_smote)
 
-    # Finalize best: either GridSearch best or highest ROC-AUC from CV
+    # Финальная модель: либо победитель GridSearch, либо лидер по ROC-AUC из CV.
     if best_estimator is not None:
         final_model = best_estimator
     else:
         best_name = max(results.keys(), key=lambda m: results[m]["ROC-AUC"])
         final_model = fitted_models[best_name]
-    # If final_model is pipeline with smote+clf, get the classifier for feature importance
+    # Если это пайплайн (ресэмплер + модель), для важности признаков берем только классификатор.
     if hasattr(final_model, "named_steps") and "clf" in final_model.named_steps:
         clf_for_importance = final_model.named_steps["clf"]
     else:
         clf_for_importance = final_model
     save_feature_importance(clf_for_importance, feature_names, config.OUTPUT_DIR / "feature_importance.png")
 
-    # Save classifier only for inference (no SMOTE at predict time)
+    # Для инференса сохраняем только классификатор, без ресэмплера.
     if hasattr(final_model, "named_steps") and "clf" in final_model.named_steps:
         classifier_for_save = final_model.named_steps["clf"]
     else:
